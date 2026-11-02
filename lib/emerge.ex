@@ -195,6 +195,14 @@ defmodule Emerge do
   end
 
   @doc """
+  Turns the display output on or off from inside a viewport callback. Off powers
+  down the panel and display pipeline; the renderer keeps running and shows the
+  latest frame when turned back on. DRM backend only.
+  """
+  @spec set_display_power(map(), boolean()) :: :ok
+  def set_display_power(state, on), do: RuntimeViewport.set_display_power(state, on)
+
+  @doc """
   Submits one frame to a viewport-local video target.
 
   The target is the same atom passed to `Emerge.UI.video/2`. Hidden targets

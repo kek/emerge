@@ -872,6 +872,7 @@ struct RendererResource {
     running_flag: Arc<AtomicBool>,
     backend_wake: BackendWakeHandle,
     stop_flag: Arc<AtomicBool>,
+    display_on: Arc<AtomicBool>,
     tree_tx: Sender<TreeMsg>,
     event_tx: Sender<EventMsg>,
     input_target: Arc<InputTargetRelay>,
@@ -2426,6 +2427,7 @@ fn start_native_renderer_with_config(
         .unwrap_or_default();
     let running_flag = Arc::clone(&lifecycle.running);
     let stop_flag = Arc::clone(&lifecycle.stop);
+    let display_on = Arc::new(AtomicBool::new(true));
     let render_counter = Arc::new(AtomicU64::new(0));
     let input_target = Arc::new(InputTargetRelay::new(None));
     let native_log = Arc::new(NativeLogRelay::new(initial_log_target));
@@ -2711,6 +2713,7 @@ fn start_native_renderer_with_config(
             let renderer_stats_for_backend = renderer_stats.clone();
             let presenter_wake_for_backend = presenter_wake.clone();
             let input_wake_for_backend = input_wake.clone();
+            let display_on_for_backend = Arc::clone(&display_on);
             let drm_config = drm::DrmRunConfig {
                 requested_size: Some((config.width, config.height)),
                 card_path: config.drm_card.clone(),
@@ -2739,6 +2742,7 @@ fn start_native_renderer_with_config(
                         lifecycle: drm_lifecycle,
                         startup_tx,
                         stop: stop_for_thread,
+                        display_on: display_on_for_backend,
                         running_flag: running_flag_clone,
                         presenter_wake: presenter_wake_for_backend,
                         input_wake: input_wake_for_backend,
@@ -2895,6 +2899,7 @@ fn start_native_renderer_with_config(
         running_flag,
         backend_wake,
         stop_flag,
+        display_on: Arc::clone(&display_on),
         tree_tx,
         event_tx,
         input_target,
@@ -3637,6 +3642,17 @@ fn set_input_mask(renderer: ResourceArc<RendererResource>, mask: u32) -> Atom {
         EventMsg::SetInputMask(mask),
         renderer.log_input,
     );
+    atoms::ok()
+}
+
+/// Turn the display output on or off without stopping the renderer.
+///
+/// Off powers down the panel and the display pipeline; rendering is held until
+/// the output is turned back on. Only the DRM backend acts on this.
+#[rustler::nif]
+fn set_display_power(renderer: ResourceArc<RendererResource>, on: bool) -> Atom {
+    renderer.display_on.store(on, Ordering::Release);
+    renderer.backend_wake.request_redraw();
     atoms::ok()
 }
 
@@ -5103,6 +5119,7 @@ mod tests {
             running_flag: Arc::clone(&running_flag),
             backend_wake: backend_wake.clone(),
             stop_flag: Arc::clone(&stop_flag),
+            display_on: Arc::new(AtomicBool::new(true)),
             tree_tx,
             event_tx,
             input_target: Arc::new(InputTargetRelay::default()),

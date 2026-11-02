@@ -571,6 +571,16 @@ defmodule Emerge.Runtime.Viewport do
     GenServer.call(pid, {:emerge_viewport, :renderer})
   end
 
+  @doc """
+  Turns the display output on or off from inside a viewport callback. Off powers
+  down the panel and display pipeline; the renderer keeps running and shows the
+  latest frame when turned back on. DRM backend only.
+  """
+  @spec set_display_power(map(), boolean()) :: :ok
+  def set_display_power(state, on) when is_map(state) and is_boolean(on) do
+    EmergeSkia.Native.set_display_power(runtime!(state).renderer, on)
+  end
+
   @spec rerender(map()) :: map()
   def rerender(state) when is_map(state) do
     runtime = %{runtime!(state) | dirty?: true}

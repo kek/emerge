@@ -345,6 +345,7 @@ pub(crate) fn start_renderer_with_config(
         running_flag,
         backend_wake,
         stop_flag,
+        display_on: Arc::new(AtomicBool::new(true)),
         tree_tx,
         event_tx,
         input_target,

@@ -950,6 +950,21 @@ fn teardown_drm_output(
         .map_err(|e| format!("tearing down DRM output failed: {e}"))
 }
 
+// The legacy DPMS property, not an atomic ACTIVE commit: the kernel keeps the mode, connector
+// routing and planes, and restores them when the output comes back.
+fn set_connector_dpms(
+    card: &Card,
+    connector: connector::Handle,
+    con_props: &HashMap<String, property::Info>,
+    on: bool,
+) -> Result<(), String> {
+    const DPMS_ON: u64 = 0;
+    const DPMS_OFF: u64 = 3;
+    let dpms = prop_handle(con_props, "DPMS")?;
+    card.set_property(connector, dpms, if on { DPMS_ON } else { DPMS_OFF })
+        .map_err(|err| format!("setting DRM connector DPMS failed: {err}"))
+}
+
 #[allow(clippy::too_many_arguments)]
 fn cleanup_active_session(
     card: &Card,
@@ -2573,6 +2588,7 @@ pub(crate) fn run(context: DrmRunContext, config: DrmRunConfig) {
         lifecycle,
         startup_tx,
         stop,
+        display_on,
         running_flag,
         presenter_wake,
         input_wake,
@@ -3368,6 +3384,7 @@ pub(crate) fn run(context: DrmRunContext, config: DrmRunConfig) {
         // unchanged-frame optimization cannot consume the generation and strand a pending frame.
         let mut video_sync_required = true;
         let mut stop_requested = false;
+        let mut display_is_on = true;
 
         loop {
             gpu_render_timer.poll(&native_log);
@@ -3624,6 +3641,18 @@ pub(crate) fn run(context: DrmRunContext, config: DrmRunConfig) {
                 break;
             }
 
+            // Power changes wait for any pending page flip. A flip event wakes this loop.
+            let want_display_on = display_on.load(Ordering::Acquire);
+            if want_display_on != display_is_on && in_flight.is_none() {
+                match set_connector_dpms(&card, connector, &con_props, want_display_on) {
+                    Ok(()) => display_is_on = want_display_on,
+                    Err(err) => native_log.error("drm", err),
+                }
+            }
+            // Atomic flips fail on an inactive CRTC, so nothing is drawn or committed while off.
+            // Generations stay dirty, and the latest frame is presented on the way back.
+            let presenting = display_is_on && want_display_on;
+
             if let Some(retry_at) = retry_commit_at
                 && Instant::now() >= retry_at
             {
@@ -3715,12 +3744,14 @@ pub(crate) fn run(context: DrmRunContext, config: DrmRunConfig) {
             // vblank. New camera submissions remain in the registry's latest-frame slot until
             // that staged frame is committed; replacing it here would submit GPU work for frames
             // that can never reach scanout and can delay the in-flight frame's implicit fence.
-            if should_prepare_primary(
-                desired_primary_generation,
-                committed_primary_generation,
-                in_flight_primary_generation,
-                prepared_primary_generation,
-            ) {
+            if presenting
+                && should_prepare_primary(
+                    desired_primary_generation,
+                    committed_primary_generation,
+                    in_flight_primary_generation,
+                    prepared_primary_generation,
+                )
+            {
                 if gbm_surface.has_free_buffers() {
                     let now = Instant::now();
                     let sampled_diagnostics_due = (stats.is_some() || config.renderer_stats_log)
@@ -3785,12 +3816,14 @@ pub(crate) fn run(context: DrmRunContext, config: DrmRunConfig) {
                 }
             }
 
-            let submit_primary = should_submit_prepared_primary(
-                in_flight.is_some(),
-                committed_primary_generation,
-                prepared_primary.as_ref().map(|frame| frame.generation),
-            );
-            let submit_cursor = cursor_plane.is_some()
+            let submit_primary = presenting
+                && should_submit_prepared_primary(
+                    in_flight.is_some(),
+                    committed_primary_generation,
+                    prepared_primary.as_ref().map(|frame| frame.generation),
+                );
+            let submit_cursor = presenting
+                && cursor_plane.is_some()
                 && in_flight.is_none()
                 && ((hw_cursor_enabled
                     && (committed_cursor_version != Some(cursor_snapshot.version)

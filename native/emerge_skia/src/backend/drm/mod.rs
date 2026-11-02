@@ -117,6 +117,7 @@ pub(crate) struct DrmRunContext {
     pub(crate) lifecycle: Arc<crate::runtime::lifecycle::Lifecycle>,
     pub(crate) startup_tx: StartupSender<Result<DrmBackendStartupInfo, String>>,
     pub(crate) stop: Arc<AtomicBool>,
+    pub(crate) display_on: Arc<AtomicBool>,
     pub(crate) running_flag: Arc<AtomicBool>,
     pub(crate) presenter_wake: EventFd,
     pub(crate) input_wake: EventFd,

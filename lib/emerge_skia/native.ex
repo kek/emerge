@@ -354,6 +354,9 @@ defmodule EmergeSkia.Native do
   @spec set_input_mask(reference(), non_neg_integer()) :: :ok
   def set_input_mask(_renderer, _mask), do: :erlang.nif_error(:nif_not_loaded)
 
+  @doc false
+  def set_display_power(_renderer, _on), do: :erlang.nif_error(:nif_not_loaded)
+
   @doc """
   Set the target process to receive input events.
 

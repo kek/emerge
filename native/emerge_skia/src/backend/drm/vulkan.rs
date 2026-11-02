@@ -1185,6 +1185,7 @@ pub(super) fn run(context: DrmRunContext, config: DrmRunConfig) {
         lifecycle,
         startup_tx,
         stop,
+        display_on: _,
         running_flag,
         presenter_wake,
         input_wake,
